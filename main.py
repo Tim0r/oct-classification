@@ -13,13 +13,17 @@ from keras.preprocessing import image
 import numpy as np
 import h5py
 from PIL import Image
+from skimage import io
 import PIL
 import os
 import cv2
+from google.cloud import storage
 
 # Flask App Engine 
 # Define a Flask app
 app = Flask(__name__)
+
+CLOUD_STORAGE_BUCKET = 'oct-classification-290613.appspot.com'
 
 # Prepare Keras Model
 # Model files
@@ -44,9 +48,9 @@ def model_predict(img_path, model):
 			-- img_path : an URL path where a given image is stored.
 			-- model : a given Keras CNN model.
 	'''
-
-	IMG = cv2.imread(img_path)
-	IMG_ = cv2.resize(IMG,(224,224),3)
+	img = io.imread(img_path)
+	img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+	IMG_ = cv2.resize(img,(224,224),3)
 
 	IMG_ = np.asarray(IMG_)
 	IMG_ = np.true_divide(IMG_, 255)
@@ -76,17 +80,31 @@ def upload():
 	if request.method == 'POST':
 
 		# Get the file from post request
-		f = request.files['file']
+		f = request.files.get('file')
 
-		# Save the file to ./uploads
-		basepath = os.path.dirname(__file__)
-		file_path = os.path.join(
-			basepath, 'uploads', secure_filename(f.filename))
-		f.save(file_path)
+		if not f:
+			return 'No file uploaded.'
+		
+		# gcs = storage.Client.from_service_account_json('oct-classification-39e9bacfee27.json') for testing in local environment
+
+		# Initialise Cloud storage
+		gcs = storage.Client()
+		
+		# Get Bucket for uploading images
+		bucket = gcs.get_bucket(CLOUD_STORAGE_BUCKET)
+		
+		# Saving Image to bucket
+		blob = bucket.blob(f.filename)
+		blob.upload_from_string(
+			f.read(),
+			content_type=f.content_type
+		)
+		
+		# Get Image URL for processing
+		file_path = blob.public_url
 
 		# Make a prediction
 		prediction = model_predict(file_path, model)
-
 		predicted_class = classes['TRAIN'][prediction[0]]
 		print('We think that is {}.'.format(predicted_class.lower()))
 
